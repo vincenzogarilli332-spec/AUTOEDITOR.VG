@@ -111,7 +111,7 @@ async function loadClips() {
       <div class="clip-thumb"></div>
       <div class="clip-info">
         <p class="clip-desc">${escapeHtml(c.description || "Descrizione non disponibile")}</p>
-        <div class="clip-meta">${c.duration}s · ${escapeHtml(c.original_filename)}</div>
+        <div class="clip-meta">${fmtTime(c.start)}–${fmtTime(c.start + c.duration)} (${c.duration}s) · ${escapeHtml(c.original_filename)}</div>
       </div>
       <button class="clip-delete" title="Rimuovi" data-id="${c.id}">×</button>
     </div>`
@@ -126,15 +126,29 @@ async function loadClips() {
   });
 }
 
+document.getElementById("backup-btn").addEventListener("click", async () => {
+  const res = await apiFetch("/api/clips/backup");
+  const data = await res.json();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `backup-clip-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
 fileInput.addEventListener("change", async () => {
   const files = Array.from(fileInput.files);
   for (const file of files) {
-    uploadStatus.textContent = `Analizzo "${file.name}" con Claude...`;
+    uploadStatus.textContent = `Analizzo "${file.name}" (rilevo le scene e le descrivo)...`;
     const form = new FormData();
     form.append("file", file);
     try {
-      await apiFetch("/api/clips", { method: "POST", body: form });
-      uploadStatus.textContent = `"${file.name}" aggiunta alla galleria.`;
+      const res = await apiFetch("/api/clips", { method: "POST", body: form });
+      const scenes = await res.json();
+      const n = Array.isArray(scenes) ? scenes.length : 1;
+      uploadStatus.textContent = `"${file.name}": trovate e descritte ${n} scen${n === 1 ? "a" : "e"}.`;
       loadClips();
     } catch (e) {
       uploadStatus.textContent = `Errore su "${file.name}": ${e.message}`;
@@ -202,7 +216,7 @@ function pollJob(jobId) {
       generateStatus.classList.add("hidden");
       generateBtn.disabled = false;
       generateResult.classList.remove("hidden");
-      generateResult.innerHTML = `<video controls src="/api/videos/${data.video_filename}"></video>`;
+      generateResult.innerHTML = `<video controls src="${videoUrl(data.video_filename)}"></video>`;
       loadVideos();
     } else if (data.status === "errore") {
       clearInterval(interval);
@@ -233,10 +247,10 @@ async function loadVideos() {
     .map(
       (v) => `
     <div class="video-card">
-      <video controls preload="none" src="/api/videos/${v.filename}"></video>
+      <video controls preload="none" src="${videoUrl(v.filename)}"></video>
       <div class="video-meta">
         <span>${v.created_at}</span>
-        <a href="/api/videos/${v.filename}" download>Scarica</a>
+        <a href="${videoUrl(v.filename)}" download>Scarica</a>
       </div>
     </div>`
     )
@@ -244,6 +258,17 @@ async function loadVideos() {
 }
 
 // ---------------- Utils ----------------
+
+function videoUrl(filename) {
+  return `/api/videos/${filename}?pw=${encodeURIComponent(APP_PASSWORD)}`;
+}
+
+function fmtTime(seconds) {
+  const s = Math.max(0, Math.round(seconds));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, "0")}`;
+}
 
 function escapeHtml(str) {
   const div = document.createElement("div");

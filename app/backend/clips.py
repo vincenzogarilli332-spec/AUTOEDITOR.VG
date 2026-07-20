@@ -17,8 +17,8 @@ import shutil
 import uuid
 from pathlib import Path
 
-from claude_client import describe_clip_from_frames
-from editor import extract_frames, get_duration
+from openai_client import describe_clip_from_frames
+from editor import detect_scenes, extract_frames, get_duration
 
 STORAGE = Path(__file__).parent / "storage"
 CLIPS_DIR = STORAGE / "clips"
@@ -43,36 +43,55 @@ def list_clips() -> list[dict]:
 
 def delete_clip(clip_id: str):
     items = _load_meta()
+    target = next((c for c in items if c["id"] == clip_id), None)
     items = [c for c in items if c["id"] != clip_id]
     _save_meta(items)
-    for f in CLIPS_DIR.glob(f"{clip_id}.*"):
-        f.unlink(missing_ok=True)
+
+    if target is None:
+        return
+    # Rimuove il file fisico solo se nessun'altra scena lo referenzia ancora
+    still_used = any(c["filename"] == target["filename"] for c in items)
+    if not still_used:
+        (CLIPS_DIR / target["filename"]).unlink(missing_ok=True)
 
 
-def add_clip(tmp_path: Path, original_filename: str) -> dict:
-    """Salva una nuova clip, la analizza con Claude e ne salva i metadati.
-    Ritorna il record della clip appena creata."""
-    clip_id = uuid.uuid4().hex[:12]
+def add_clip(tmp_path: Path, original_filename: str) -> list[dict]:
+    """Salva un nuovo file video caricato, rileva le scene al suo interno
+    (un file puo' essere una compilation con piu' momenti diversi) e
+    descrive ogni scena separatamente con Claude. Ritorna la lista dei
+    record delle scene create (una libreria puo' avere piu' 'clip'
+    provenienti dallo stesso file fisico)."""
+    file_id = uuid.uuid4().hex[:12]
     ext = Path(original_filename).suffix or ".mp4"
-    dest = CLIPS_DIR / f"{clip_id}{ext}"
+    dest = CLIPS_DIR / f"{file_id}{ext}"
     shutil.copy(tmp_path, dest)
 
-    duration = get_duration(dest)
+    scenes = detect_scenes(dest)
 
-    frames_dir = STORAGE / "tmp_frames" / clip_id
-    frame_paths = extract_frames(dest, frames_dir, count=3)
-    description = describe_clip_from_frames([str(p) for p in frame_paths])
-    shutil.rmtree(frames_dir, ignore_errors=True)
+    records = []
+    for scene_start, scene_end in scenes:
+        scene_id = uuid.uuid4().hex[:12]
+        frames_dir = STORAGE / "tmp_frames" / scene_id
+        frame_paths = extract_frames(
+            dest, frames_dir, count=2, start=scene_start, end=scene_end
+        )
+        analysis = describe_clip_from_frames([str(p) for p in frame_paths])
+        shutil.rmtree(frames_dir, ignore_errors=True)
 
-    record = {
-        "id": clip_id,
-        "filename": dest.name,
-        "original_filename": original_filename,
-        "duration": round(duration, 2),
-        "description": description,
-    }
+        records.append(
+            {
+                "id": scene_id,
+                "filename": dest.name,
+                "original_filename": original_filename,
+                "start": round(scene_start, 2),
+                "duration": round(scene_end - scene_start, 2),
+                "description": analysis["description"],
+                "has_text_overlay": analysis["has_text_overlay"],
+                "text_position": analysis["text_position"],
+            }
+        )
 
     items = _load_meta()
-    items.append(record)
+    items.extend(records)
     _save_meta(items)
-    return record
+    return records
