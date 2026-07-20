@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+app/backend/storage/clips/*
+app/backend/storage/videos/*
+app/backend/storage/work/*
+app/backend/storage/jobs/*
+app/backend/storage/clips_meta.json
