@@ -23,7 +23,7 @@ import time
 import uuid
 from pathlib import Path
 
-from openai_client import choose_clips_for_blocks
+from openai_client import choose_clips_for_blocks, detect_product_context
 from clips import CLIPS_DIR, list_clips
 from editor import build_video, get_duration
 
@@ -115,8 +115,11 @@ def run_generation_job(job_id: str, script_text: str, audio_path: Path | None):
         _set_job_status(job_id, "elaborazione", "Calcolo il ritmo dai blocchi di testo...")
         block_targets = estimate_block_targets(blocks_text, audio_path)
 
+        _set_job_status(job_id, "elaborazione", "Riconosco quale prodotto sta vendendo lo script...")
+        product_context = detect_product_context(script_text)
+
         _set_job_status(job_id, "elaborazione", "L'IA sta scegliendo le clip e il ritmo del montaggio...")
-        chosen_blocks = choose_clips_for_blocks(blocks_text, clip_library, block_targets)
+        chosen_blocks = choose_clips_for_blocks(blocks_text, clip_library, block_targets, product_context)
 
         clip_by_id = {c["id"]: c for c in clip_library}
 

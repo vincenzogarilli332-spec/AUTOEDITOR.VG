@@ -88,6 +88,9 @@ def add_clip(tmp_path: Path, original_filename: str) -> list[dict]:
                 "description": analysis["description"],
                 "has_text_overlay": analysis["has_text_overlay"],
                 "text_position": analysis["text_position"],
+                "shows_product": analysis["shows_product"],
+                "body_part": analysis["body_part"],
+                "shows_multiple_people": analysis["shows_multiple_people"],
             }
         )
 
